@@ -55,32 +55,37 @@ func crawl(queue chan string, wg *sync.WaitGroup, file *os.File) {
 					if token.Data == "a" {
 						for _, attr := range token.Attr {
 							if attr.Key == "href" {
-								link := attr.Val
-								if len(link) > 0 && link[0] == '#' {
+
+								newLink := attr.Val
+
+								if len(newLink) > 0 && newLink[0] == '#' {
 									continue
 								}
-								if len(link) > 0 && link[0] == '/' {
-									link = base + link
+								if len(newLink) > 0 && newLink[0] == '/' {
+									newLink = base + newLink
+								}
+								if !strings.HasPrefix(newLink, base) {
+									continue
 								}
 								mu.Lock()
-								if visited[link] {
+								if visited[newLink] {
 									mu.Unlock()
 									continue
 
 								}
-								visited[link] = true
+								visited[newLink] = true
 								mu.Unlock()
-
+								wg.Add(1)
 								select {
-								case queue <- link:
+								case queue <- newLink:
 									// success
-									wg.Add(1)
+
 								default:
-									// queue full → drop or skip
+									wg.Done()
 								}
 
 								fileMu.Lock()
-								if _, err := fmt.Fprintln(file, link); err != nil {
+								if _, err := fmt.Fprintln(file, newLink); err != nil {
 									fileMu.Unlock()
 									continue
 								}
