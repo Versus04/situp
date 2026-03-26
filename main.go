@@ -3,8 +3,10 @@ package main
 import (
 	"fmt"
 	"log"
+	"math"
 	"net/http"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 
@@ -19,32 +21,44 @@ var indexMu sync.Mutex
 var mu sync.Mutex
 var client = &http.Client{}
 var visited = make(map[string]bool)
-var base = "https://en.wikibooks.org/"
+var base = "https://en.wikipedia.org"
 var filename = "links.txt"
 var texts = make(map[string]map[string]bool)
 var stopWords = map[string]bool{
 	"the": true, "is": true, "a": true, "and": true, "of": true, "to": true,
 }
 
-func search(query string) []string {
+type Result struct {
+	URL   string
+	Score float64
+}
+
+var tf = make(map[string]map[string]int)
+var df = make(map[string]int)
+
+func search(query string) {
 	words := strings.Fields(strings.ToLower(query))
-	scores := make(map[string]int)
+	scores := make(map[string]float64)
 	indexMu.Lock()
 	defer indexMu.Unlock()
 	for _, word := range words {
 		word = strings.Trim(word, ".,!?;:\"()[]{}")
-
-		for url := range texts[word] {
-			scores[url]++
+		idf := math.Log(float64(maxPages) / float64(df[word]))
+		for url, tfval := range tf[word] {
+			scores[url] += float64(tfval) * idf
 		}
 	}
-	var result []string
-	for url := range scores {
-		result = append(result, url)
+	var result []Result
+	for url, score := range scores {
+		result = append(result, Result{URL: url, Score: score})
 	}
 
-	return result
-
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Score > result[j].Score
+	})
+	for i := 0; i < min(10, len(result)); i++ {
+		fmt.Println(result[i].URL, result[i].Score)
+	}
 }
 func crawl(queue chan string, wg *sync.WaitGroup, file *os.File) {
 
@@ -75,7 +89,7 @@ func crawl(queue chan string, wg *sync.WaitGroup, file *os.File) {
 				return
 			}
 			tokenizer := html.NewTokenizer(resp.Body)
-
+			seen := make(map[string]bool)
 		tokenizerLoop:
 			for {
 
@@ -87,20 +101,30 @@ func crawl(queue chan string, wg *sync.WaitGroup, file *os.File) {
 					text := strings.TrimSpace(tokenizer.Token().Data)
 					words := strings.Fields(text)
 					indexMu.Lock()
+
 					for _, v := range words {
+
 						v = strings.ToLower(v)
 						v = strings.Trim(v, ".,!?;:\"()[]{}")
-
-						if texts[v] == nil {
-							texts[v] = make(map[string]bool)
-						}
 						if stopWords[v] {
 							continue
 						}
+						if !seen[v] {
+							df[v]++
+							seen[v] = true
+						}
+						if texts[v] == nil {
+							texts[v] = make(map[string]bool)
+						}
+
 						newLink := strings.TrimRight(link, "/")
 						if i := strings.Index(newLink, "#"); i != -1 {
 							newLink = newLink[:i]
 						}
+						if tf[v] == nil {
+							tf[v] = make(map[string]int)
+						}
+						tf[v][newLink]++
 						texts[v][newLink] = true
 
 					}
@@ -120,6 +144,11 @@ func crawl(queue chan string, wg *sync.WaitGroup, file *os.File) {
 									newLink = base + newLink
 								}
 								if !strings.HasPrefix(newLink, base) {
+									continue
+								}
+								if strings.Contains(newLink, "oldid=") ||
+									strings.Contains(newLink, "printable=") ||
+									strings.Contains(newLink, "action=") {
 									continue
 								}
 								mu.Lock()
@@ -183,10 +212,6 @@ func main() {
 		close(c)
 	}()
 	wg.Wait()
-	result := search("cricket")
-	for _, v := range result {
-		fmt.Println(v)
-	}
-	fmt.Println("Done")
+	search("cricket")
 
 }
