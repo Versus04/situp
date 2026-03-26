@@ -12,16 +12,21 @@ import (
 )
 
 var fileMu sync.Mutex
-
+var indexMu sync.Mutex
 var mu sync.Mutex
 var client = &http.Client{}
 var visited = make(map[string]bool)
 var base = "https://en.wikibooks.org/"
 var filename = "links.txt"
+var texts = make(map[string]map[string]bool)
+var stopWords = map[string]bool{
+	"the": true, "is": true, "a": true, "and": true, "of": true, "to": true,
+}
 
 func crawl(queue chan string, wg *sync.WaitGroup, file *os.File) {
 
 	for link := range queue {
+
 		func() {
 			defer wg.Done()
 			if strings.HasPrefix(link, "javascript:") ||
@@ -46,10 +51,33 @@ func crawl(queue chan string, wg *sync.WaitGroup, file *os.File) {
 
 		tokenizerLoop:
 			for {
+
 				tokentype := tokenizer.Next()
 				switch tokentype {
 				case html.ErrorToken:
 					break tokenizerLoop
+				case html.TextToken:
+					text := strings.TrimSpace(tokenizer.Token().Data)
+					words := strings.Fields(text)
+					indexMu.Lock()
+					for _, v := range words {
+						v = strings.ToLower(v)
+						v = strings.Trim(v, ".,!?;:\"()[]{}")
+
+						if texts[v] == nil {
+							texts[v] = make(map[string]bool)
+						}
+						if stopWords[v] {
+							continue
+						}
+						newLink := strings.TrimRight(link, "/")
+						if i := strings.Index(newLink, "#"); i != -1 {
+							newLink = newLink[:i]
+						}
+						texts[v][newLink] = true
+
+					}
+					indexMu.Unlock()
 				case html.StartTagToken, html.SelfClosingTagToken:
 					token := tokenizer.Token()
 					if token.Data == "a" {
@@ -74,11 +102,11 @@ func crawl(queue chan string, wg *sync.WaitGroup, file *os.File) {
 
 								}
 								visited[newLink] = true
+
 								mu.Unlock()
 								wg.Add(1)
 								select {
 								case queue <- newLink:
-									// success
 
 								default:
 									wg.Done()
@@ -102,6 +130,7 @@ func crawl(queue chan string, wg *sync.WaitGroup, file *os.File) {
 
 }
 func main() {
+
 	c := make(chan string, 1000)
 	file, err := os.OpenFile(filename, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
@@ -111,7 +140,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	link := "https://en.wikibooks.org/wiki/Department:Engineering"
+	link := "https://en.wikipedia.org/wiki/Cricket"
 	var wg sync.WaitGroup
 	wg.Add(1)
 	c <- link
