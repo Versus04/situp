@@ -1,30 +1,55 @@
 # situp
 
-A concurrent Go web crawler that starts from a seed URL, discovers links from HTML anchor tags, and saves discovered links to a text file.
+situp is a concurrent Go crawler with a simple inverted index for keyword search.
 
-## Overview
+## What It Does
 
-This project uses a buffered channel as a work queue and multiple crawler goroutines to fetch pages in parallel. Each page is parsed with the HTML tokenizer from golang.org/x/net/html, and discovered links are added to a shared visited map to reduce duplicate processing.
+- Crawls pages concurrently using worker goroutines and a buffered queue.
+- Extracts links from anchor tags (`<a href="...">`) and crawls discovered pages.
+- Extracts text tokens from pages and builds an in-memory word-to-URL index.
+- Supports a basic `search(query)` over crawled pages.
+- Appends discovered links to `links.txt`.
 
-## Current Behavior
+## Current Runtime Configuration
 
-- Starts from this seed URL:
-	- https://en.wikibooks.org/wiki/Department:Engineering
-- Uses 10 crawler workers
-- Uses a queue channel with capacity 1000
-- Writes discovered links to links.txt
-- Adds a browser-like User-Agent header for requests
-- Skips href values that start with:
-	- javascript:
-	- mailto:
-	- tel:
-	- # (fragment links)
-- Converts links that start with / using this base:
-	- https://en.wikibooks.org/
+Based on the current `main.go`:
+
+- Seed URL: `https://en.wikipedia.org/wiki/Cricket`
+- Worker count: `10`
+- Queue buffer size: `1000`
+- Crawl page limit (`maxPages`): `10000`
+- Output file: `links.txt`
+
+## Crawl and Index Logic
+
+- Requests use a browser-like User-Agent.
+- Non-200 responses are skipped.
+- `href` values are filtered:
+  - Skips `javascript:`, `mailto:`, `tel:`, and fragment-only links (`#...`).
+  - Converts links starting with `/` using `base`.
+  - Keeps only links that start with `base`.
+- Duplicate links are prevented using `visited`.
+- Text content is tokenized, normalized to lowercase, punctuation-trimmed, and indexed.
+- Stop words are ignored during indexing.
+
+## Search
+
+After crawling, `main()` runs:
+
+```go
+result := search("cricket")
+```
+
+`search(query)`:
+
+- Splits query into words.
+- Looks up matching URLs from the in-memory index (`texts`).
+- Returns a list of URLs that contain one or more query words.
 
 ## Requirements
 
-- Go 1.18 or newer
+- Go 1.18+
+- Module dependency: `golang.org/x/net/html`
 
 ## Setup
 
@@ -38,16 +63,22 @@ go mod tidy
 go run .
 ```
 
-When the run completes, the crawler prints Done and discovered links are appended to links.txt.
+## Output
 
-## Notes
+- Console:
+  - Search result URLs
+  - `Done` when execution completes
+- File:
+  - Discovered links appended to `links.txt`
 
-- The crawler appends output to links.txt on every run.
-- Relative URL handling currently only converts links beginning with /.
-- Links are enqueued with a non-blocking send; when the queue is full, new discovered links are dropped.
+## Important Notes
+
+- The crawler uses shared global state (`visited`, `texts`, `count`, `done`) protected by mutexes.
+- The domain filter uses `base`. In current code, `base` is set to `https://en.wikibooks.org/` while the seed URL is on `wikipedia.org`, so discovered links outside `base` are intentionally ignored.
+- `links.txt` is append-only; delete it manually if you want a fresh run.
 
 ## Project Files
 
-- main.go: crawler implementation
-- go.mod, go.sum: module and dependency metadata
-- links.txt: discovered links output
+- `main.go`: crawler + index + search flow
+- `go.mod`, `go.sum`: module metadata
+- `links.txt`: discovered URL output
