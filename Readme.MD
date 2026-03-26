@@ -1,24 +1,25 @@
 # situp
 
-situp is a concurrent Go crawler with a simple inverted index for keyword search.
+situp is a concurrent Go crawler with TF-IDF based keyword search.
 
 ## What It Does
 
 - Crawls pages concurrently using worker goroutines and a buffered queue.
 - Extracts links from anchor tags (`<a href="...">`) and crawls discovered pages.
-- Extracts text tokens from pages and builds an in-memory word-to-URL index.
-- Supports a basic `search(query)` over crawled pages.
+- Extracts text tokens from pages and builds in-memory term statistics.
+- Supports `search(query)` ranked by TF-IDF score.
 - Appends discovered links to `links.txt`.
 
 ## Current Runtime Configuration
 
-Based on the current `main.go`:
+Based on the current main.go:
 
 - Seed URL: `https://en.wikipedia.org/wiki/Cricket`
 - Worker count: `10`
 - Queue buffer size: `1000`
 - Crawl page limit (`maxPages`): `10000`
 - Output file: `links.txt`
+- Domain base filter: `https://en.wikipedia.org`
 
 ## Crawl and Index Logic
 
@@ -28,23 +29,29 @@ Based on the current `main.go`:
   - Skips `javascript:`, `mailto:`, `tel:`, and fragment-only links (`#...`).
   - Converts links starting with `/` using `base`.
   - Keeps only links that start with `base`.
+  - Skips links containing `oldid=`, `printable=`, or `action=`.
 - Duplicate links are prevented using `visited`.
 - Text content is tokenized, normalized to lowercase, punctuation-trimmed, and indexed.
-- Stop words are ignored during indexing.
+- Stop words are ignored.
+- Index data maintained in memory:
+  - `tf[word][url]` term frequency per URL
+  - `df[word]` document frequency per word
+  - `texts[word][url]` word-to-URL lookup map
 
 ## Search
 
 After crawling, `main()` runs:
 
 ```go
-result := search("cricket")
+search("cricket")
 ```
 
 `search(query)`:
 
 - Splits query into words.
-- Looks up matching URLs from the in-memory index (`texts`).
-- Returns a list of URLs that contain one or more query words.
+- Computes score per URL as `tf * idf` (summed across query terms).
+- Uses `idf = log(maxPages / df[word])`.
+- Sorts by score descending and prints up to top 10 results.
 
 ## Requirements
 
@@ -66,15 +73,14 @@ go run .
 ## Output
 
 - Console:
-  - Search result URLs
-  - `Done` when execution completes
+  - Top ranked URLs with score from `search("cricket")`
 - File:
   - Discovered links appended to `links.txt`
 
 ## Important Notes
 
 - The crawler uses shared global state (`visited`, `texts`, `count`, `done`) protected by mutexes.
-- The domain filter uses `base`. In current code, `base` is set to `https://en.wikibooks.org/` while the seed URL is on `wikipedia.org`, so discovered links outside `base` are intentionally ignored.
+- The domain filter is currently aligned with the seed domain (`wikipedia.org`).
 - `links.txt` is append-only; delete it manually if you want a fresh run.
 
 ## Project Files
