@@ -11,6 +11,9 @@ import (
 	"golang.org/x/net/html"
 )
 
+var done = false
+var maxPages = 10000
+var count int
 var fileMu sync.Mutex
 var indexMu sync.Mutex
 var mu sync.Mutex
@@ -23,10 +26,34 @@ var stopWords = map[string]bool{
 	"the": true, "is": true, "a": true, "and": true, "of": true, "to": true,
 }
 
+func search(query string) []string {
+	words := strings.Fields(strings.ToLower(query))
+	scores := make(map[string]int)
+	indexMu.Lock()
+	defer indexMu.Unlock()
+	for _, word := range words {
+		word = strings.Trim(word, ".,!?;:\"()[]{}")
+
+		for url := range texts[word] {
+			scores[url]++
+		}
+	}
+	var result []string
+	for url := range scores {
+		result = append(result, url)
+	}
+
+	return result
+
+}
 func crawl(queue chan string, wg *sync.WaitGroup, file *os.File) {
 
 	for link := range queue {
-
+		/*	if done {
+			wg.Done()
+			fmt.Println("WG decreasing")
+			return
+		}*/
 		func() {
 			defer wg.Done()
 			if strings.HasPrefix(link, "javascript:") ||
@@ -96,13 +123,17 @@ func crawl(queue chan string, wg *sync.WaitGroup, file *os.File) {
 									continue
 								}
 								mu.Lock()
-								if visited[newLink] {
+								if visited[newLink] || count >= maxPages {
+									if count >= maxPages {
+										done = true
+									}
 									mu.Unlock()
+
 									continue
 
 								}
 								visited[newLink] = true
-
+								count++
 								mu.Unlock()
 								wg.Add(1)
 								select {
@@ -152,6 +183,10 @@ func main() {
 		close(c)
 	}()
 	wg.Wait()
+	result := search("cricket")
+	for _, v := range result {
+		fmt.Println(v)
+	}
 	fmt.Println("Done")
 
 }
