@@ -1,6 +1,6 @@
-# situp
+# situp (Search It Up)
 
-situp is a concurrent Go crawler with TF-IDF based keyword search.
+situp ("Search It Up") is a concurrent Go crawler with TF-IDF based keyword search.
 
 ## What It Does
 
@@ -12,7 +12,7 @@ situp is a concurrent Go crawler with TF-IDF based keyword search.
 
 ## Current Runtime Configuration
 
-Based on the current main.go:
+Based on the current `main.go`:
 
 - Seed URL: `https://en.wikipedia.org/wiki/Cricket`
 - Worker count: `10`
@@ -34,9 +34,8 @@ Based on the current main.go:
 - Text content is tokenized, normalized to lowercase, punctuation-trimmed, and indexed.
 - Stop words are ignored.
 - Index data maintained in memory:
-  - `tf[word][url]` term frequency per URL
-  - `df[word]` document frequency per word
-  - `texts[word][url]` word-to-URL lookup map
+  - `TF[term][url]` term frequency per URL
+  - `DF[term]` document frequency per term
 
 ## Search
 
@@ -46,7 +45,7 @@ After crawling, `main()` runs:
 search("cricket")
 ```
 
-`search(query)`:
+`search.Query(...)`:
 
 - Splits query into words.
 - Computes score per URL as `tf * idf` (summed across query terms).
@@ -79,12 +78,15 @@ go run .
 
 ## Important Notes
 
-- The crawler uses shared global state (`visited`, `texts`, `count`, `done`) protected by mutexes.
+- The crawler and index are in-memory and concurrency-safe (mutex-protected).
 - The domain filter is currently aligned with the seed domain (`wikipedia.org`).
 - `links.txt` is append-only; delete it manually if you want a fresh run.
 
 ## Project Files
 
-- `main.go`: crawler + index + search flow
+- `main.go`: wires crawler + index + search together
+- `crawler/`: crawling, link extraction, and writing discovered links
+- `index/`: token normalization, stop-words, and TF/DF storage
+- `search/`: TF-IDF scoring over the index
 - `go.mod`, `go.sum`: module metadata
 - `links.txt`: discovered URL output
